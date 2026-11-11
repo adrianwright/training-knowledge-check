@@ -273,7 +273,10 @@ def main() -> int:
                         client, credential, project, state, args.output, args.app_version
                     )
                 print(json.dumps(result, indent=2))
-                print("Published endpoints verified. A365/Defender ingestion is not verified.")
+                print(
+                    "M365 submissions accepted; scoped endpoints verified. "
+                    "Catalog visibility and A365/Defender ingestion remain unverified."
+                )
                 return 0
             arm = ArmReader(credential)
             if args.command == "generate":

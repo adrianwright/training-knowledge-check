@@ -59,9 +59,17 @@ assessment workflow into a general-purpose chat agent.
 
 Publishing can be subject to tenant policy or service feature availability. Failures and
 per-agent before/after receipts are saved privately in `.local/m365-publishing`. Publication
-is sequential, not transactional. Inspect partial results before retrying; increment
+is sequential, not transactional. A retry reuses saved HTTP 200 submissions only when
+their metadata, app version and native identity match, and repeats live endpoint checks.
+Do not delete those receipts before recovering a partial batch. Increment
 `-AppVersion 1.0.1` when updating an already published package. Knowledge reattachment
 changes only version routing and preserves the published protocols and authorization.
+
+An accepted submission (`titleId`) is distinct from approval or catalog visibility.
+The endpoint's `publish_approval_status` is recorded without treating it as proof of
+store availability; a personal-scope HTTP 200 submission can initially read `not_published`
+before propagating to `no_approval_needed`. Confirm the app appears under your Microsoft
+365/Teams agents before claiming visibility.
 
 In Defender, verify **Settings > Security for AI > Get started** is enabled and its
 Microsoft 365 connector is **Connected**, with **Microsoft Entra ID Management events**

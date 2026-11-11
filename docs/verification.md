@@ -31,4 +31,11 @@ protection; neither proves a Defender alert. Microsoft 365 publication receipts 
 personal-scope publication and endpoint readback, not telemetry ingestion. Defender for
 Cloud alerts and Defender XDR Agent 365 activity are distinct diagnostic paths.
 
+The service error can report `jailbreak.detected=true` and `filtered=true` while
+`defender_for_ai.details.evaluation` is `unavailable`, with reason
+`missing_or_unknown_provider_evaluation_status`. That proves the jailbreak filter blocked
+the request, not that Defender evaluated or detected it. Preserve this distinction and the
+private request ID when escalating to the service owner; do not infer a region, model or
+permission root cause from that field alone.
+
 Unit tests and CI do not contact Azure and do not prove tenant licensing, service access, cloud deployment, native telemetry ingestion or security detection.

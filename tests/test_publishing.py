@@ -23,16 +23,23 @@ def published_details(name="knowledge-author", identity="author-identity"):
     return remote
 
 
-@pytest.mark.parametrize("failure", [None, "tenant", "no-title", "http", "route"])
-def test_publication_requires_personal_scope_and_preserves_bindings(tmp_path, failure):
+@pytest.mark.parametrize(
+    "failure", [None, "tenant", "no-title", "http", "route", "principal", "blueprint"]
+)
+@pytest.mark.parametrize("approval", ["published", "not_published"])
+def test_publication_requires_personal_scope_and_preserves_bindings(tmp_path, failure, approval):
     requests = []
     after_author = published_details()
+    after_author.as_dict.return_value["agent_endpoint"]["publish_approval_status"] = approval
     if failure == "tenant":
         after_author.as_dict.return_value["agent_endpoint"]["authorization_schemes"].append(
             {"type": "BotServiceTenant"}
         )
     if failure == "route":
         after_author.agent_endpoint.version_selector.version_selection_rules[0].agent_version = "2"
+    if failure in ("principal", "blueprint"):
+        key = "instance_identity" if failure == "principal" else "blueprint"
+        after_author.as_dict.return_value[key]["principal_id"] = "changed-principal"
     project = Mock()
     project.agents.get.side_effect = [
         details(),
@@ -68,7 +75,14 @@ def test_publication_requires_personal_scope_and_preserves_bindings(tmp_path, fa
         assert body["privacyUrl"].endswith("docs/security.md#demo-data-handling")
         assert body["termsOfUseUrl"].endswith("docs/security.md#demo-use")
     assert result["author"]["identity_client_id"] == "author-identity"
+    assert result["author"]["publish_approval_status"] == approval
+    assert result["author"]["catalog_visibility_verified"] is False
     assert (tmp_path / "published.json").exists()
+    after_review = published_details("knowledge-review", "review-identity")
+    project.agents.get.side_effect = [after_author, after_review, after_author, after_review]
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        publish_m365(client, credential, project, state(), tmp_path, "1.0.0")
+    assert len(requests) == 2
 
 
 def test_publication_refuses_identity_drift_before_any_post(tmp_path):
@@ -80,6 +94,7 @@ def test_publication_refuses_identity_drift_before_any_post(tmp_path):
     client.post.assert_not_called()
 
 
-def test_publication_requires_explicit_valid_app_version():
+@pytest.mark.parametrize("version", ["latest", "0.1.0", "1.01.0"])
+def test_publication_requires_explicit_valid_app_version(version):
     with pytest.raises(ValueError, match="three numeric parts"):
-        publish_requests(state(), "latest")
+        publish_requests(state(), version)

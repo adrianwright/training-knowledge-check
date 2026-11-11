@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,8 +15,10 @@ from knowledge_check.foundry import Deployment, check_route, save_json
 
 def publish_requests(state: Deployment, app_version: str) -> dict[str, dict]:
     state.require_complete()
-    if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", app_version):
-        raise ValueError("App version must have three numeric parts, for example 1.0.0.")
+    if not re.fullmatch(r"[1-9]\d*\.(0|[1-9]\d*)\.(0|[1-9]\d*)", app_version):
+        raise ValueError(
+            "App version must have three numeric parts and a nonzero major, for example 1.0.0."
+        )
     return {
         role: {
             "agentDisplayName": binding.name,
@@ -68,29 +71,52 @@ def publish_m365(
         prefix = directory / f"{binding.name}-{attempt}"
         save_json(prefix.with_name(prefix.name + "-before.json"), before[role])
         save_json(prefix.with_name(prefix.name + "-request.json"), requests[role])
-        token = credential.get_token("https://ai.azure.com/.default")
-        response = client.post(
-            f"{state.project_endpoint}/agents/{quote(binding.name, safe='')}"
-            "/microsoft365/publish?api-version=v1",
-            headers={"Authorization": f"Bearer {token.token}"},
-            json=requests[role],
-        )
-        save_json(
-            prefix.with_name(prefix.name + "-response.json"),
-            {"http_status": response.status_code, "body": response.text},
-        )
-        response.raise_for_status()
-        published = response.json()
+        published = None
+        # A previous accepted submission can survive a failed readback or a partial batch.
+        for path in sorted(directory.glob(f"{binding.name}-*-response.json"), reverse=True):
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+            stem = path.name.removesuffix("-response.json")
+            request = json.loads((directory / f"{stem}-request.json").read_text(encoding="utf-8"))
+            snapshot = json.loads((directory / f"{stem}-before.json").read_text(encoding="utf-8"))
+            if (
+                receipt["http_status"] == 200
+                and request == requests[role]
+                and snapshot.get("instance_identity", {}).get("client_id")
+                == binding.identity_client_id
+            ):
+                published = json.loads(receipt["body"])
+                break
+        if published is None:
+            token = credential.get_token("https://ai.azure.com/.default")
+            response = client.post(
+                f"{state.project_endpoint}/agents/{quote(binding.name, safe='')}"
+                "/microsoft365/publish?api-version=v1",
+                headers={"Authorization": f"Bearer {token.token}"},
+                json=requests[role],
+            )
+            save_json(
+                prefix.with_name(prefix.name + "-response.json"),
+                {"http_status": response.status_code, "body": response.text},
+            )
+            response.raise_for_status()
+            published = response.json()
         if not isinstance(published, dict) or not published.get("titleId"):
             raise ValueError(f"{binding.name}: publication returned no titleId.")
         details = project.agents.get(agent_name=binding.name)
-        save_json(prefix.with_name(prefix.name + "-after.json"), details.as_dict())
+        after = details.as_dict()
+        save_json(prefix.with_name(prefix.name + "-after.json"), after)
         check_route(details, binding.version)
         if not details.instance_identity or (
             details.instance_identity.client_id != binding.identity_client_id
         ):
             raise ValueError("Publication changed the native agent identity.")
-        endpoint = details.as_dict().get("agent_endpoint", {})
+        for identity in ("instance_identity", "blueprint"):
+            if any(
+                after.get(identity, {}).get(field) != before[role].get(identity, {}).get(field)
+                for field in ("client_id", "principal_id")
+            ):
+                raise ValueError("Publication changed the native identity or blueprint.")
+        endpoint = after.get("agent_endpoint", {})
         protocols = endpoint.get("protocol_configuration", {})
         schemes = {item["type"] for item in endpoint.get("authorization_schemes", [])}
         if (
@@ -98,13 +124,15 @@ def publish_m365(
             or not schemes.intersection({"Entra", "AzureRbac"})
             or "BotServiceRbac" not in schemes
             or "BotServiceTenant" in schemes
-            or endpoint.get("publish_approval_status") in (None, "not_published")
         ):
             raise ValueError(f"{binding.name}: restricted publication readback failed.")
         results[role] = {
             "title_id": published["titleId"],
+            "app_version": app_version,
+            "submission_accepted": True,
+            "catalog_visibility_verified": False,
             "publish_scope": "Shared",
-            "publish_approval_status": endpoint["publish_approval_status"],
+            "publish_approval_status": endpoint.get("publish_approval_status"),
             "identity_client_id": binding.identity_client_id,
             "agent_version": binding.version,
         }
