@@ -12,6 +12,9 @@ flowchart LR
   A --> R[Foundry reviewer prompt agent]
   R -->|findings| A
   R --> H[Explicit human approval]
+  A -->|knowledge_base_retrieve| K[Foundry IQ knowledge base]
+  R -->|knowledge_base_retrieve| K
+  K --> S[Basic Azure AI Search]
   A -. native activity .-> M[Microsoft Agent 365]
   R -. native activity .-> M
   P[Blocking Prompt Shields] --> A
@@ -22,6 +25,7 @@ flowchart LR
 - The current **Agents API** creates them. Runtime calls use each agent's **Responses endpoint**, with 100% routing to the saved version. There are no classic assistants, threads, runs, direct-model agents, or deterministic runtime.
 - Pydantic defines structured outputs and enforces shape, exact citations, known objectives, review references and approval state. It does **not** author questions, perform the independent review or prove semantic correctness.
 - A365 uses **native Foundry collection**, not fabricated events or separate duplicate agent registrations.
+- An optional scripted Foundry IQ deployment adds a **Basic-tier Azure AI Search** service, a seeded guide/rubric index, a knowledge source and a reusable knowledge base. Both prompt agents call its built-in read-only MCP retrieval tool; no Azure Function is involved.
 - The security case injects a harmless synthetic instruction override. A blocked request or reviewer finding is **not** proof of a Defender alert; verification requires a real matching alert.
 
 ## Deploy a fresh project
@@ -45,6 +49,25 @@ az account set --subscription '<subscription-id>'
 Choose a fresh `-EnvironmentName` to isolate another deployment. Tenant-specific outputs and native identity bindings are written under ignored `.local`; responses and receipts go under ignored `results`. Never commit either directory.
 
 **A365 administrator activation is required.** A licensed tenant must have Agent 365 activated and required terms accepted. Bicep enables account logging, but cannot accept tenant terms or assign licenses. Preflight fails unless the resource reports native A365 collection enabled. See [setup](docs/setup.md).
+
+## Add Foundry IQ knowledge and real tool calls
+
+After deploying the project and both agents:
+
+```powershell
+# Preview Basic Search infrastructure and RBAC
+.\scripts\Deploy-Knowledge.ps1 -SearchLocation eastus
+# Provision, seed, create KB/connection, verify retrieval, update both agent versions
+.\scripts\Deploy-Knowledge.ps1 -SearchLocation eastus -Apply
+# Live clean/ambiguous/repaired runs; require real successful retrieval calls
+.\scripts\Test-Knowledge.ps1
+```
+
+Everything is codified: `infra/knowledge.bicep` provisions Search and least-privilege RBAC; `setup-knowledge` loads the canonical fictional guide plus review rubric, creates the knowledge source/base and a **project-managed-identity** connection, and verifies returned source references. `attach-mcp` creates new prompt-agent versions and routes their endpoints without replacing native agent identities. Private before-snapshots and creation receipts support recovery.
+
+Search uses one Basic replica/partition, keyless authentication, keyword search and semantic ranking. The knowledge base uses the existing **gpt-5.6-luna** deployment for query planning; no extra model or embedding deployment is required. Basic Search incurs ongoing charges; the free semantic allowance is finite. Search defaults to East US because East US 2 rejected new Search provisioning due to capacity during setup; `-SearchLocation` is explicit and independent of the model's East US 2 region. Cross-region retrieval is not a data-residency blueprint.
+
+The only allowed MCP tool is `knowledge_base_retrieve`. Noninteractive approval is intentional for this read-only, synthetic-data tool. The generator rejects missing/failed tool calls and saves actual `*-tool-calls.json` service evidence. This proves tool execution, **not A365 portal visibility** or registration as a separate Agent 365 tool-catalog server. Check both native identities and the run window in A365 before claiming visibility.
 
 ## Generate demonstrable activity
 

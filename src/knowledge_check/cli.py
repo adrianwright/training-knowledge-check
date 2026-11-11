@@ -15,8 +15,9 @@ from azure.identity import AzureCliCredential
 from openai import OpenAIError
 
 from knowledge_check.controls import ArmReader, check_a365, check_defender, find_alert
-from knowledge_check.definitions import definitions
-from knowledge_check.foundry import Deployment, FoundryAgents, deploy, save_json
+from knowledge_check.definitions import KNOWLEDGE_TOOL, McpConfiguration, definitions
+from knowledge_check.foundry import Deployment, FoundryAgents, attach_mcp, deploy, save_json
+from knowledge_check.knowledge import setup_knowledge
 from knowledge_check.models import Artifact, Source
 from knowledge_check.workflow import approve, execute
 
@@ -35,6 +36,18 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--prefix", default="knowledge")
     create.add_argument("--state", type=Path, default=Path(".local/foundry.json"))
     create.add_argument("--apply", action="store_true")
+    tools = commands.add_parser("attach-mcp", help="Version existing agents with Foundry IQ.")
+    tools.add_argument("--state", type=Path, default=Path(".local/foundry.json"))
+    tools.add_argument("--url", required=True)
+    tools.add_argument("--connection", required=True)
+    tools.add_argument("--apply", action="store_true")
+    kb = commands.add_parser(
+        "setup-knowledge", help="Seed and verify the Foundry IQ knowledge base."
+    )
+    kb.add_argument("--state", type=Path, default=Path(".local/foundry.json"))
+    kb.add_argument("--outputs", type=Path, default=Path(".local/knowledge-outputs.json"))
+    kb.add_argument("--source", type=Path, default=Path("data/guide.json"))
+    kb.add_argument("--apply", action="store_true")
     for command in ["generate", "preflight", "verify-defender"]:
         child = commands.add_parser(command)
         child.add_argument("--state", type=Path, default=Path(".local/foundry.json"))
@@ -77,6 +90,7 @@ def generate(args, state: Deployment, credential: AzureCliCredential) -> None:
         "agents": {role: binding.model_dump() for role, binding in state.agents.items()},
         "controls": controls,
         "a365_readback_verified": False,
+        "mcp": state.mcp.model_dump() if state.mcp else None,
         "runs": [],
     }
     manifest_path = args.output / "manifest.json"
@@ -196,6 +210,44 @@ def main() -> int:
             return 0
         state = Deployment.model_validate_json(args.state.read_text(encoding="utf-8"))
         state.require_complete()
+        if args.command == "setup-knowledge":
+            if not args.apply:
+                print(
+                    "Preview: seed guide/rubric, create knowledge source/base "
+                    "and keyless connection."
+                )
+                return 0
+            outputs = json.loads(args.outputs.read_text(encoding="utf-8-sig"))
+            source = Source.model_validate_json(args.source.read_text(encoding="utf-8"))
+            with AzureCliCredential() as credential, httpx.Client(timeout=180) as client:
+                mcp = setup_knowledge(
+                    client, credential, state, outputs, source, args.outputs.parent
+                )
+            print(f"Knowledge retrieval verified. MCP endpoint: {mcp.endpoint}")
+            return 0
+        if args.command == "attach-mcp":
+            mcp = McpConfiguration(endpoint=args.url, connection_id=args.connection)
+            if not args.apply:
+                print(
+                    json.dumps(
+                        {
+                            "mcp": mcp.model_dump(),
+                            "tools": {"author": KNOWLEDGE_TOOL, "review": KNOWLEDGE_TOOL},
+                            "action": "Version agents; preserve identities; update routing.",
+                        },
+                        indent=2,
+                    )
+                )
+                return 0
+            with (
+                AzureCliCredential() as credential,
+                AIProjectClient(
+                    endpoint=state.project_endpoint, credential=credential, allow_preview=True
+                ) as project,
+            ):
+                attach_mcp(project, state, args.state, mcp)
+            print("Foundry IQ attached to both prompt agents; native identities preserved.")
+            return 0
         with AzureCliCredential() as credential:
             arm = ArmReader(credential)
             if args.command == "generate":

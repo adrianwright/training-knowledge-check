@@ -20,7 +20,7 @@ from azure.core.exceptions import ResourceNotFoundError
 from openai import APIStatusError
 from pydantic import BaseModel, Field, model_validator
 
-from knowledge_check.definitions import definitions
+from knowledge_check.definitions import KNOWLEDGE_TOOL, McpConfiguration, definitions
 from knowledge_check.models import Contract
 
 T = TypeVar("T", bound=BaseModel)
@@ -68,10 +68,16 @@ class Deployment(Contract):
     project_resource_id: str
     model: str
     agents: dict[str, Binding] = Field(default_factory=dict)
+    mcp: McpConfiguration | None = None
 
     @model_validator(mode="after")
     def target_matches(self) -> Deployment:
         validate_target(self.project_endpoint, self.project_resource_id)
+        if self.mcp and not re.fullmatch(
+            re.escape(self.project_resource_id) + r"/connections/[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}",
+            self.mcp.connection_id,
+        ):
+            raise ValueError("MCP connection must belong to this Foundry project.")
         return self
 
     def require_complete(self) -> None:
@@ -111,7 +117,7 @@ def deploy(project: AIProjectClient, state: Deployment, path: Path, prefix: str)
         raise ValueError(f"Agent {name} already exists. Use a fresh prefix; it was not modified.")
 
     save_json(path, state)
-    for role, definition in definitions(state.model).items():
+    for role, definition in definitions(state.model, state.mcp).items():
         name = f"{prefix}-{role}"
         version = project.agents.create_version(
             agent_name=name,
@@ -155,6 +161,88 @@ def deploy(project: AIProjectClient, state: Deployment, path: Path, prefix: str)
     state.require_complete()
 
 
+def attach_mcp(
+    project: AIProjectClient, state: Deployment, path: Path, mcp: McpConfiguration
+) -> None:
+    state.require_complete()
+    candidate = Deployment.model_validate({**state.model_dump(), "mcp": mcp.model_dump()})
+    for binding in state.agents.values():
+        details = project.agents.get(agent_name=binding.name)
+        check_route(details, binding.version)
+        if not details.instance_identity or (
+            details.instance_identity.client_id != binding.identity_client_id
+        ):
+            raise ValueError("Agent identity changed; refusing MCP update.")
+    backup = path.with_name(f"{path.stem}-before-mcp-{datetime.now(UTC):%Y%m%dT%H%M%S%f}.json")
+    save_json(backup, state)
+    for role, definition in definitions(state.model, mcp).items():
+        binding = state.agents[role]
+        version = project.agents.create_version(
+            agent_name=binding.name,
+            definition=definition,
+            metadata={"demo": "training-knowledge-check", "role": role, "tools": "foundry-iq"},
+        )
+        save_json(
+            path.parent / f"{binding.name}-v{version.version}-created.json", version.as_dict()
+        )
+        details = project.agents.update_details(
+            agent_name=binding.name,
+            agent_endpoint=AgentEndpointConfig(
+                version_selector=VersionSelector(
+                    version_selection_rules=[
+                        FixedRatioVersionSelectionRule(
+                            agent_version=version.version, traffic_percentage=100
+                        ),
+                    ]
+                ),
+                protocol_configuration=ProtocolConfiguration(
+                    responses=ResponsesProtocolConfiguration()
+                ),
+            ),
+        )
+        check_route(details, version.version)
+        if not details.instance_identity or (
+            details.instance_identity.client_id != binding.identity_client_id
+        ):
+            raise ValueError("MCP update unexpectedly changed the native agent identity.")
+        candidate.agents[role] = binding.model_copy(update={"version": version.version})
+        save_json(path, candidate)
+    state.agents = candidate.agents
+    state.mcp = mcp
+
+
+def verify_mcp_calls(output: list[dict], role: str) -> list[dict]:
+    calls = [item for item in output if item.get("type") == "mcp_call"]
+    if not calls:
+        raise ValueError(f"{role}: no actual MCP tool call was returned by Foundry.")
+    for call in calls:
+        if (
+            call.get("server_label") != "training_knowledge"
+            or call.get("name") != KNOWLEDGE_TOOL
+            or call.get("status") != "completed"
+            or call.get("error")
+            or not call.get("output")
+        ):
+            raise ValueError(f"{role}: knowledge retrieval failed or used an unexpected tool.")
+        result = json.loads(call["output"])
+        if not isinstance(result, dict) or result.get("isError") or not result.get("documents"):
+            raise ValueError(f"{role}: knowledge retrieval returned an empty/error tool result.")
+        chunks = [
+            json.loads(document["content"])
+            for document in result["documents"]
+            if document.get("id") and document.get("metadata") == "application/json"
+        ]
+        if not any(
+            isinstance(chunk, dict)
+            and chunk.get("id")
+            and chunk.get("source_id") == chunk["id"]
+            and chunk.get("content")
+            for chunk in chunks
+        ):
+            raise ValueError(f"{role}: knowledge tool result has no cited grounding content.")
+    return calls
+
+
 class FoundryAgents:
     def __init__(self, project: AIProjectClient, state: Deployment):
         state.require_complete()
@@ -186,6 +274,7 @@ class FoundryAgents:
             "started_at": datetime.now(UTC).isoformat(),
             "status": "requesting",
         }
+        payload = {**payload, "demo_run_id": run_id}
         save_json(directory / f"{stage}-request.json", payload)
         save_json(directory / f"{stage}-receipt.json", receipt)
         with self.project.get_openai_client(
@@ -210,5 +299,15 @@ class FoundryAgents:
         save_json(directory / f"{stage}-receipt.json", receipt)
         if response.status != "completed":
             raise ValueError(f"{binding.name}: response {response.id} is {response.status}.")
+        if self.state.mcp:
+            try:
+                calls = verify_mcp_calls(response.model_dump(mode="json")["output"], role)
+            except ValueError:
+                receipt["tool_status"] = "failed"
+                save_json(directory / f"{stage}-receipt.json", receipt)
+                raise
+            save_json(directory / f"{stage}-tool-calls.json", calls)
+            receipt["tool_status"] = "verified"
+            save_json(directory / f"{stage}-receipt.json", receipt)
         # The schema validates structure; grounding and semantic checks happen separately.
         return contract.model_validate_json(response.output_text)

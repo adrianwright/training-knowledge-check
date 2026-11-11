@@ -27,3 +27,5 @@ jobs:
           }
       - name: Compile Bicep
         run: az bicep build --file infra/main.bicep --stdout
+      - name: Compile knowledge infrastructure
+        run: az bicep build --file infra/knowledge.bicep --stdout

@@ -5,6 +5,9 @@
 | Fresh infrastructure exists | Successful Bicep deployment and ARM outputs |
 | Two real prompt agents exist | Saved create/details receipts with `kind: prompt`, distinct native identities and version routing |
 | Agents ran | Actual Responses IDs, completed statuses and service response payloads |
+| Foundry IQ works | Actual retrieve response with references to the seeded fictional source |
+| Agents used the knowledge tool | Successful actual `mcp_call` entries for `knowledge_base_retrieve`, saved per stage |
+| Tools appear in A365 | Actual A365 portal readback for the correct native identities/time window, not model narration |
 | Reviewer caught ambiguity | Actual review finding against the deliberately seeded second question |
 | Repair worked | New author invocation plus independent rereview with no outstanding findings |
 | Human approved | Separately created approved artifact with a nonblank reviewer attestation |
@@ -17,6 +20,8 @@
 The clean scenario can still legitimately receive review findings: language-model generation and review are not deterministic. `ready_for_human` is not automatic approval. Exact citation checking establishes substring provenance, not semantic entailment; the independent reviewer and human remain responsible for content quality.
 
 For A365 verification, locate both native identities from `.local\foundry.json` in the Agent 365 administration experience. Refresh the activity view after its ingestion delay and compare the batch window with real invocations. Save a private screenshot/export and record what was observed. Do not change `a365_readback_verified` to true merely because invocation receipts exist.
+
+After `Deploy-Knowledge.ps1 -Apply`, run `Test-Knowledge.ps1`. The private `.local/knowledge-retrieval.json` proves direct KB retrieval; each run's `*-tool-calls.json` proves the agent actually invoked the allowlisted tool. Completed model output without a successful tool result fails the run. `tool_status: verified` is execution evidence, not proof of A365 ingestion, citation entailment or a separately registered MCP catalog object. Neither script fabricates an A365 event.
 
 For Defender verification, `defender-readback.json` lists verified alert IDs and pending runs. Full matching alerts are saved privately as `defender-alert.json`. Masked evidence, aggregation, unsupported detections or an expired wait window can prevent exact correlation; the script then fails rather than declaring success. A portal-only observation should be described explicitly as manual evidence.
 
