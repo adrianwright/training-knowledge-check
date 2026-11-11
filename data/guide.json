@@ -1,0 +1,12 @@
+{
+  "id": "fictional-workplace-v1",
+  "title": "Northstar Workshop: equipment checkout",
+  "text": "This fictional guide is for a synthetic demonstration only.\nBefore moving equipment, inspect the case for visible damage.\nIf the case is damaged, stop and notify the shift lead. Do not move damaged equipment.\nRecord the equipment identifier and checkout time in the checkout log before leaving the storage area.\nOnly trained staff may use the blue handling cart.\nReturn equipment to shelf B at the end of the shift.\nFor a missing identifier, notify the shift lead before checkout.\nThe shift lead and the facilities coordinator can both answer general storage questions.\nNever enter a personal password in the checkout log.",
+  "objectives": [
+    "Identify the required first inspection",
+    "Respond to visible damage",
+    "Complete checkout records",
+    "Select authorized handling staff",
+    "Return equipment correctly"
+  ]
+}
