@@ -71,6 +71,19 @@ The only allowed MCP tool is `knowledge_base_retrieve`. Noninteractive approval 
 
 ## Generate demonstrable activity
 
+For Defender's Agent 365 agent-threat detection, publish the tested agents to Microsoft
+365/Teams as well as creating their Responses endpoints:
+
+```powershell
+.\scripts\Publish-Agents.ps1
+.\scripts\Publish-Agents.ps1 -Apply
+```
+
+This uses **Just you** visibility and project-RBAC access, not tenant-wide distribution.
+Also verify the Defender Microsoft 365 connector and investigator permissions described in
+[setup](docs/setup.md#personal-scope-microsoft-365-publishing-and-defender). Publishing
+is a prerequisite, not evidence that A365 activity or Defender alerts have arrived.
+
 ```powershell
 # Real calls: clean draft, seeded ambiguity, then author repair plus rereview
 .\scripts\Invoke-Demo.ps1 -Scenario mixed -Count 3

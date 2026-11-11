@@ -17,6 +17,7 @@ from azure.ai.projects.models import (
 from azure.core.credentials import AccessToken
 from azure.core.exceptions import ResourceNotFoundError
 from conftest import parse_body, response_json
+from openai import APIStatusError
 
 from knowledge_check.definitions import McpConfiguration, definitions
 from knowledge_check.foundry import (
@@ -122,6 +123,28 @@ def test_changed_remote_binding_prevents_invocation(change, tmp_path):
             "author", {}, QuestionSet, run_id="unit-run", directory=tmp_path, stage="author"
         )
     project.get_openai_client.assert_not_called()
+
+
+def test_service_filter_error_keeps_private_category_evidence(tmp_path):
+    evidence = {
+        "code": "content_filter",
+        "innererror": {"content_filter_result": {"jailbreak": {"filtered": True}}},
+    }
+    credential = Mock()
+    credential.get_token.return_value = AccessToken("unit-test-not-a-credential", 9999999999)
+    transport = httpx.MockTransport(lambda request: httpx.Response(400, json={"error": evidence}))
+    with AIProjectClient(endpoint=ENDPOINT, credential=credential, allow_preview=True) as project:
+        project.agents.get = Mock(return_value=details())
+        original = project.get_openai_client
+        project.get_openai_client = lambda **kwargs: original(
+            **kwargs, http_client=httpx.Client(transport=transport)
+        )
+        with pytest.raises(APIStatusError):
+            FoundryAgents(project, state()).invoke(
+                "author", {}, QuestionSet, run_id="unit-run", directory=tmp_path, stage="author"
+            )
+    assert json.loads((tmp_path / "author-service-error.json").read_text()) == evidence
+    assert not (tmp_path / "author-response.json").exists()
 
 
 def test_deploy_persists_two_real_prompt_definitions_and_native_identities(tmp_path):
@@ -251,6 +274,8 @@ def test_attach_versions_existing_agents_without_replacing_identities(tmp_path):
         "knowledge-author",
         "knowledge-review",
     ]
+    for call in project.agents.update_details.call_args_list:
+        assert set(call.kwargs["agent_endpoint"].as_dict()) == {"version_selector"}
 
 
 @pytest.mark.parametrize(

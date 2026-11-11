@@ -25,4 +25,10 @@ After `Deploy-Knowledge.ps1 -Apply`, run `Test-Knowledge.ps1`. The private `.loc
 
 For Defender verification, `defender-readback.json` lists verified alert IDs and pending runs. Full matching alerts are saved privately as `defender-alert.json`. Masked evidence, aggregation, unsupported detections or an expired wait window can prevent exact correlation; the script then fails rather than declaring success. A portal-only observation should be described explicitly as manual evidence.
 
+Failed Responses calls also save `*-service-error.json` privately. Inspect the actual
+content-filter category before attributing a generic `content_filter` error to jailbreak
+protection; neither proves a Defender alert. Microsoft 365 publication receipts prove
+personal-scope publication and endpoint readback, not telemetry ingestion. Defender for
+Cloud alerts and Defender XDR Agent 365 activity are distinct diagnostic paths.
+
 Unit tests and CI do not contact Azure and do not prove tenant licensing, service access, cloud deployment, native telemetry ingestion or security detection.

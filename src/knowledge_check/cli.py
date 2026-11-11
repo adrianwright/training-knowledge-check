@@ -19,6 +19,7 @@ from knowledge_check.definitions import KNOWLEDGE_TOOL, McpConfiguration, defini
 from knowledge_check.foundry import Deployment, FoundryAgents, attach_mcp, deploy, save_json
 from knowledge_check.knowledge import setup_knowledge
 from knowledge_check.models import Artifact, Source
+from knowledge_check.publishing import publish_m365, publish_requests
 from knowledge_check.workflow import approve, execute
 
 
@@ -48,6 +49,13 @@ def parser() -> argparse.ArgumentParser:
     kb.add_argument("--outputs", type=Path, default=Path(".local/knowledge-outputs.json"))
     kb.add_argument("--source", type=Path, default=Path("data/guide.json"))
     kb.add_argument("--apply", action="store_true")
+    publish = commands.add_parser(
+        "publish-m365", help="Publish both existing agents with Just you visibility."
+    )
+    publish.add_argument("--state", type=Path, default=Path(".local/foundry.json"))
+    publish.add_argument("--app-version", default="1.0.0")
+    publish.add_argument("--output", type=Path, default=Path(".local/m365-publishing"))
+    publish.add_argument("--apply", action="store_true")
     for command in ["generate", "preflight", "verify-defender"]:
         child = commands.add_parser(command)
         child.add_argument("--state", type=Path, default=Path(".local/foundry.json"))
@@ -249,6 +257,24 @@ def main() -> int:
             print("Foundry IQ attached to both prompt agents; native identities preserved.")
             return 0
         with AzureCliCredential() as credential:
+            if args.command == "publish-m365":
+                requests = publish_requests(state, args.app_version)
+                if not args.apply:
+                    print(json.dumps(requests, indent=2))
+                    print("Preview only. --apply publishes with Just you visibility.")
+                    return 0
+                with (
+                    AIProjectClient(
+                        endpoint=state.project_endpoint, credential=credential, allow_preview=True
+                    ) as project,
+                    httpx.Client(timeout=120, follow_redirects=False) as client,
+                ):
+                    result = publish_m365(
+                        client, credential, project, state, args.output, args.app_version
+                    )
+                print(json.dumps(result, indent=2))
+                print("Published endpoints verified. A365/Defender ingestion is not verified.")
+                return 0
             arm = ArmReader(credential)
             if args.command == "generate":
                 generate(args, state, credential)

@@ -195,9 +195,6 @@ def attach_mcp(
                         ),
                     ]
                 ),
-                protocol_configuration=ProtocolConfiguration(
-                    responses=ResponsesProtocolConfiguration()
-                ),
             ),
         )
         check_route(details, version.version)
@@ -293,6 +290,7 @@ class FoundryAgents:
                     request_id=error.request_id,
                 )
                 save_json(directory / f"{stage}-receipt.json", receipt)
+                save_json(directory / f"{stage}-service-error.json", error.body)
                 raise
         save_json(directory / f"{stage}-response.json", response.model_dump(mode="json"))
         receipt.update(response_id=response.id, status=response.status)

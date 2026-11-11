@@ -46,6 +46,35 @@ Bicep sets `a365LoggingEnabled=true`. It does not accept terms, purchase license
 
 The Bicep type catalog may warn that the preview `a365LoggingEnabled` property is unknown. This integration property is documented by Foundry; the actual ARM API and preflight readback, not a suppressed warning, determine whether it works.
 
+## Personal-scope Microsoft 365 publishing and Defender
+
+Saved versions and Responses endpoints are not Microsoft 365 publication. For Defender's
+Agent 365 agent-threat detection, Microsoft documents that Foundry agents must be published.
+After testing the agents, preview `.\scripts\Publish-Agents.ps1`, then run it with `-Apply`.
+The script uses the current Agents API and publishes both with `publishScope=Shared`
+("Just you"), bot registration enabled and autopilot disabled. It never requests tenant-wide
+distribution. Existing project-RBAC API access, version routing and native identities are
+verified after publication. It does not change model instructions or make the structured
+assessment workflow into a general-purpose chat agent.
+
+Publishing can be subject to tenant policy or service feature availability. Failures and
+per-agent before/after receipts are saved privately in `.local/m365-publishing`. Publication
+is sequential, not transactional. Inspect partial results before retrying; increment
+`-AppVersion 1.0.1` when updating an already published package. Knowledge reattachment
+changes only version routing and preserves the published protocols and authorization.
+
+In Defender, verify **Settings > Security for AI > Get started** is enabled and its
+Microsoft 365 connector is **Connected**, with **Microsoft Entra ID Management events**
+and **Microsoft 365 activities** selected. This tenant configuration is separate from the
+subscription's Defender for AI Services plan. The script does not silently enable connectors,
+accept terms or grant Graph permissions. Advanced Hunting through Microsoft Graph requires
+`ThreatHunting.Read.All`; the Defender XDR API uses `AdvancedHunting.Read`. These are
+investigator permissions, not runtime grants for the prompt agents.
+
+Publication and enabled settings still do not prove telemetry ingestion or a security alert.
+Check actual Agent 365 activity and Defender `CloudAppEvents` for the native identities.
+The Defender for Cloud exact-run alert verifier remains a separate check.
+
 ## Recovering from a partial deployment
 
 Infrastructure deployment is repeatable. Retry the same Bicep deployment after resolving its explicit Azure error. Child account writes are serialized to avoid Azure operation conflicts.
@@ -63,3 +92,6 @@ Knowledge attachment is an explicit update path, unlike initial agent creation. 
 - [Connect agents to Foundry IQ](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/foundry-iq-connect)
 - [Create a search index knowledge source](https://learn.microsoft.com/en-us/azure/search/agentic-knowledge-source-how-to-search-index)
 - [Create a knowledge base](https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-create-knowledge-base)
+- [Publish with the current Agents REST API](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/publish-copilot-virtual-network)
+- [Enable Defender security for AI agents](https://learn.microsoft.com/en-us/defender-xdr/security-for-ai/get-started-defender-security-for-ai)
+- [Defender agent detection prerequisites](https://learn.microsoft.com/en-us/defender-xdr/security-for-ai/ai-agent-detection-protection)

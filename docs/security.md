@@ -34,3 +34,28 @@ Defender detection and delivery are asynchronous and service-dependent. This har
 Allow time for a newly enabled Defender plan to become effective. Keep Prompt Shields blocking enabled. Do not weaken filters to force an alert and do not escalate to malware or real exfiltration.
 
 References: [Defender AI onboarding](https://learn.microsoft.com/en-us/azure/defender-for-cloud/ai-onboarding), [AI workload alerts](https://learn.microsoft.com/en-us/azure/defender-for-cloud/alerts-ai-workloads).
+
+## Demo data handling
+
+Use synthetic inputs only. Do not send customer content, learner records, credentials or
+personal data. Foundry and Azure AI Search process inputs and outputs in the configured
+Azure deployment. Agent 365 and Defender can collect agent identities, activity and security
+evidence; enabled prompt evidence can contain prompt snippets. Publishing and interacting
+through Teams or Microsoft 365 also sends publishing metadata and conversation content to
+those services, subject to your organization's Microsoft service agreements and settings.
+
+The local scripts save requests, responses, service errors and deployment receipts under
+ignored `.local` and `results` directories. They do not automatically delete this evidence.
+Operators must restrict access, review retention and remove demo resources and local evidence
+as appropriate. These directories must never be committed. This notice describes the demo's
+data flows; it does not replace your organization's privacy requirements or Microsoft's
+service-specific terms.
+
+## Demo use
+
+This is a fictional, non-production demonstration, not an assessment or scoring service.
+Human review is required before approving generated content. Outputs can be incorrect;
+do not use them for high-stakes decisions. Repository code is provided under its
+[MIT license](../LICENSE), including its warranty disclaimer. Azure and Microsoft 365 usage
+requires your own authorized account, appropriate licenses and compliance with applicable
+service terms. Deploying the demo incurs cloud charges.
